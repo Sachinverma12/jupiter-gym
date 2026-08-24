@@ -5,7 +5,7 @@ import tsconfigPaths from "vite-tsconfig-paths";
 import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
-  plugins: [tanstackStart(), tailwindcss(), react(), tsconfigPaths()],
+  plugins: [tanstackStart({ target: "vercel" }), tailwindcss(), react(), tsconfigPaths()],
   resolve: {
     alias: {
       "@": "/src",
