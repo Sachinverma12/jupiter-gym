@@ -2,7 +2,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import dayjs from "dayjs";
-import { Download, MessageCircle, Plus, X } from "lucide-react";
+import { CheckCircle2, Download, MessageCircle, Plus, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "react-toastify";
@@ -12,7 +12,8 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/EmptyState";
 import { StatCard } from "@/components/StatCard";
 import { StatusBadge, statusTone } from "@/components/StatusBadge";
 import { useMembers, usePayments } from "@/hooks/useGymData";
-import { insertPayment, updateMember } from "@/services/gym";
+import { insertPayment } from "@/services/gym";
+import { updatePaymentStatus } from "@/lib/dashboard.functions";
 import { exportToExcel } from "@/utils/excel";
 import {
   formatDate,
@@ -46,7 +47,9 @@ const field =
 function PaymentsPage() {
   const payments = usePayments();
   const members = useMembers();
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [markingId, setMarkingId] = useState<string | null>(null);
 
   const rows = payments.data ?? [];
   const memberList = members.data ?? [];
@@ -64,6 +67,31 @@ function PaymentsPage() {
   }, [rows, monthStart]);
 
   const dues = memberList.filter((m) => m.payment_status !== "paid");
+
+  async function handleMarkPaid(paymentId: string, memberId: string) {
+    setMarkingId(paymentId);
+    try {
+      await updatePaymentStatus({ data: { paymentId, status: "paid", memberId } });
+      await queryClient.invalidateQueries({ queryKey: ["payments"] });
+      await queryClient.invalidateQueries({ queryKey: ["members"] });
+      toast.success("Payment marked as paid.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to update status.");
+    } finally {
+      setMarkingId(null);
+    }
+  }
+
+  async function handleMarkDuesPaid(memberId: string) {
+    try {
+      await updatePaymentStatus({ data: { paymentId: "", status: "paid", memberId } });
+      await queryClient.invalidateQueries({ queryKey: ["members"] });
+      await queryClient.invalidateQueries({ queryKey: ["payments"] });
+      toast.success("Member marked as paid.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to update status.");
+    }
+  }
 
   function exportPayments() {
     try {
@@ -122,24 +150,33 @@ function PaymentsPage() {
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold">{m.name}</div>
                     <div className="font-mono text-[10px] text-muted-foreground">
-                      {formatMoney(m.plan_price)} · expires {formatDate(m.expiry_date)}
+                      {formatMoney(m.plan_price)} · {m.mobile}
                     </div>
                   </div>
-                  <StatusBadge tone={statusTone(memberStatus(m.expiry_date))}>
+                  <StatusBadge tone={m.payment_status === "overdue" ? "destructive" : "warning"}>
                     {m.payment_status}
                   </StatusBadge>
                 </div>
-                <a
-                  href={whatsappLink(
-                    m.mobile,
-                    reminderMessage(m.name, m.expiry_date, m.plan_price),
-                  )}
-                  target="_blank"
-                  rel="noreferrer"
-                  className={`${btn} w-full justify-center`}
-                >
-                  <MessageCircle className="size-3" /> WhatsApp
-                </a>
+                <div className="flex gap-2">
+                  <a
+                    href={whatsappLink(
+                      m.mobile,
+                      reminderMessage(m.name, m.expiry_date, m.plan_price),
+                    )}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={`${btn} flex-1 justify-center`}
+                  >
+                    <MessageCircle className="size-3" /> Chase
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => handleMarkDuesPaid(m.id)}
+                    className={`${btn} flex-1 justify-center`}
+                  >
+                    <CheckCircle2 className="size-3" /> Mark paid
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -155,7 +192,7 @@ function PaymentsPage() {
         <EmptyState title="No payments yet" hint="Record your first transaction." />
       ) : (
         <div className="animate-slide w-full overflow-x-auto border border-border">
-          <table className="w-full min-w-[720px] border-collapse text-left">
+          <table className="w-full min-w-[800px] border-collapse text-left">
             <thead className="bg-muted/60 font-mono text-[10px] tracking-widest text-muted-foreground uppercase">
               <tr>
                 <th className="border-b border-border p-4">Member</th>
@@ -164,6 +201,7 @@ function PaymentsPage() {
                 <th className="border-b border-border p-4">Status</th>
                 <th className="border-b border-border p-4">Date</th>
                 <th className="border-b border-border p-4">Note</th>
+                <th className="border-b border-border p-4">Action</th>
               </tr>
             </thead>
             <tbody className="text-sm">
@@ -185,6 +223,21 @@ function PaymentsPage() {
                   </td>
                   <td className="p-4 font-mono text-xs">{formatDate(p.paid_on)}</td>
                   <td className="p-4 text-xs text-muted-foreground">{p.note ?? "—"}</td>
+                  <td className="p-4">
+                    {p.status !== "paid" ? (
+                      <button
+                        type="button"
+                        disabled={markingId === p.id}
+                        onClick={() => handleMarkPaid(p.id, p.member_id)}
+                        className="inline-flex items-center gap-1 border border-primary px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest text-primary transition-colors hover:bg-primary hover:text-primary-foreground disabled:opacity-50"
+                      >
+                        <CheckCircle2 className="size-3" />
+                        {markingId === p.id ? "Saving…" : "Mark paid"}
+                      </button>
+                    ) : (
+                      <span className="font-mono text-[10px] text-muted-foreground">—</span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -223,9 +276,9 @@ function PaymentDialog({ onClose }: { onClose: () => void }) {
         status: values.status,
         note: values.note || null,
       });
-      if (values.status === "paid") {
-        await updateMember(values.member_id, { payment_status: "paid" });
-      }
+      await updatePaymentStatus({
+        data: { paymentId: "", status: values.status, memberId: values.member_id },
+      });
       await queryClient.invalidateQueries({ queryKey: ["payments"] });
       await queryClient.invalidateQueries({ queryKey: ["members"] });
       toast.success("Payment recorded.");

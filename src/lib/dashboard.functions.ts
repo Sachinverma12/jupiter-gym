@@ -70,3 +70,23 @@ export const fetchPaymentsServer = createServerFn({ method: "GET" })
     if (error) throw new Error(error.message);
     return (data ?? []) as Payment[];
   });
+
+export const updatePaymentStatus = createServerFn({ method: "POST" })
+  .validator((data: { paymentId: string; status: "paid" | "pending" | "overdue"; memberId: string }) => data)
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    if (data.paymentId) {
+      const { error: payErr } = await supabaseAdmin
+        .from("payments")
+        .update({ status: data.status })
+        .eq("id", data.paymentId);
+      if (payErr) throw new Error(payErr.message);
+    }
+
+    const { error: memErr } = await supabaseAdmin
+      .from("members")
+      .update({ payment_status: data.status })
+      .eq("id", data.memberId);
+    if (memErr) throw new Error(memErr.message);
+  });

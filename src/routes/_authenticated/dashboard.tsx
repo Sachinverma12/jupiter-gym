@@ -1,5 +1,8 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import dayjs from "dayjs";
+import { CheckCircle2 } from "lucide-react";
+import { useState } from "react";
 import {
   Bar,
   BarChart,
@@ -11,12 +14,14 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { toast } from "react-toastify";
 
 import { AdminShell, btn } from "@/components/AdminShell";
 import { EmptyState, ErrorState, LoadingState } from "@/components/EmptyState";
 import { StatCard } from "@/components/StatCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useAttendance, useMembers, usePayments } from "@/hooks/useGymData";
+import { updatePaymentStatus } from "@/lib/dashboard.functions";
 import {
   formatMoney,
   formatTime,
@@ -46,6 +51,22 @@ function Dashboard() {
   const members = useMembers();
   const attendance = useAttendance();
   const payments = usePayments();
+  const queryClient = useQueryClient();
+  const [markingId, setMarkingId] = useState<string | null>(null);
+
+  async function handleMarkPaid(memberId: string) {
+    setMarkingId(memberId);
+    try {
+      await updatePaymentStatus({ data: { paymentId: "", status: "paid", memberId } });
+      await queryClient.invalidateQueries({ queryKey: ["members"] });
+      await queryClient.invalidateQueries({ queryKey: ["payments"] });
+      toast.success("Marked as paid.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed.");
+    } finally {
+      setMarkingId(null);
+    }
+  }
 
   if (members.isLoading || attendance.isLoading || payments.isLoading) {
     return (
@@ -244,17 +265,28 @@ function Dashboard() {
                       {memberStatus(m.expiry_date)}
                     </StatusBadge>
                   </div>
-                  <a
-                    href={whatsappLink(
-                      m.mobile,
-                      reminderMessage(m.name, m.expiry_date, m.plan_price),
-                    )}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="block w-full bg-primary py-2 text-center font-display text-[10px] uppercase tracking-widest text-primary-foreground"
-                  >
-                    Send WhatsApp reminder
-                  </a>
+                  <div className="flex gap-2">
+                    <a
+                      href={whatsappLink(
+                        m.mobile,
+                        reminderMessage(m.name, m.expiry_date, m.plan_price),
+                      )}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex-1 bg-primary py-2 text-center font-display text-[10px] uppercase tracking-widest text-primary-foreground"
+                    >
+                      WhatsApp
+                    </a>
+                    <button
+                      type="button"
+                      disabled={markingId === m.id}
+                      onClick={() => handleMarkPaid(m.id)}
+                      className="flex flex-1 items-center justify-center gap-1 border border-border py-2 font-display text-[10px] uppercase tracking-widest text-muted-foreground transition-colors hover:border-primary hover:text-primary disabled:opacity-50"
+                    >
+                      <CheckCircle2 className="size-3" />
+                      {markingId === m.id ? "Saving…" : "Mark paid"}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
