@@ -13,13 +13,13 @@ import { StatusBadge, statusTone } from "@/components/StatusBadge";
 import { PLAN_KEYS, PLANS, planLabel } from "@/config/gym";
 import { useMembers } from "@/hooks/useGymData";
 import {
-  deleteMember,
-  insertMember,
-  insertPayment,
-  nextMemberCode,
-  updateMember,
-  type Member,
-} from "@/services/gym";
+  deleteMemberServer,
+  insertMemberServer,
+  insertPaymentServer,
+  nextMemberCodeServer,
+  updateMemberServer,
+} from "@/lib/dashboard.functions";
+import type { Member } from "@/lib/dashboard.functions";
 import { exportToExcel } from "@/utils/excel";
 import {
   formatDate,
@@ -80,16 +80,23 @@ function MembersPage() {
     const plan = PLANS[member.plan as keyof typeof PLANS] ?? PLANS.monthly;
     const base = dayjs(member.expiry_date).isBefore(dayjs()) ? dayjs() : dayjs(member.expiry_date);
     try {
-      await updateMember(member.id, {
-        expiry_date: base.add(plan.months, "month").format("YYYY-MM-DD"),
-        payment_status: "paid",
+      await updateMemberServer({
+        data: {
+          id: member.id,
+          values: {
+            expiry_date: base.add(plan.months, "month").format("YYYY-MM-DD"),
+            payment_status: "paid",
+          },
+        },
       });
-      await insertPayment({
-        member_id: member.id,
-        amount: Number(member.plan_price),
-        method: "cash",
-        status: "paid",
-        note: `${plan.label} renewal`,
+      await insertPaymentServer({
+        data: {
+          member_id: member.id,
+          amount: Number(member.plan_price),
+          method: "cash",
+          status: "paid",
+          note: `${plan.label} renewal`,
+        },
       });
       await refresh();
       queryClient.invalidateQueries({ queryKey: ["payments"] });
@@ -103,7 +110,7 @@ function MembersPage() {
     if (!window.confirm(`Delete ${member.name}? This also removes their attendance history.`))
       return;
     try {
-      await deleteMember(member.id);
+      await deleteMemberServer({ data: { id: member.id } });
       await refresh();
       toast.success("Member deleted.");
     } catch (e) {
@@ -364,10 +371,11 @@ function MemberDialog({
     };
     try {
       if (member) {
-        await updateMember(member.id, payload);
+        await updateMemberServer({ data: { id: member.id, values: payload } });
         toast.success("Member updated.");
       } else {
-        await insertMember({ ...payload, member_code: await nextMemberCode() });
+        const code = await nextMemberCodeServer();
+        await insertMemberServer({ data: { ...payload, member_code: code } });
         toast.success("Member added.");
       }
       await onSaved();

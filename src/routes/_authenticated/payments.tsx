@@ -12,8 +12,7 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/EmptyState";
 import { StatCard } from "@/components/StatCard";
 import { StatusBadge, statusTone } from "@/components/StatusBadge";
 import { useMembers, usePayments } from "@/hooks/useGymData";
-import { insertPayment } from "@/services/gym";
-import { updatePaymentStatus } from "@/lib/dashboard.functions";
+import { insertPaymentServer, updatePaymentStatus } from "@/lib/dashboard.functions";
 import { exportToExcel } from "@/utils/excel";
 import {
   formatDate,
@@ -269,12 +268,14 @@ function PaymentDialog({ onClose }: { onClose: () => void }) {
 
   const submit = handleSubmit(async (values) => {
     try {
-      await insertPayment({
-        member_id: values.member_id,
-        amount: Number(values.amount),
-        method: values.method,
-        status: values.status,
-        note: values.note || null,
+      await insertPaymentServer({
+        data: {
+          member_id: values.member_id,
+          amount: Number(values.amount),
+          method: values.method,
+          status: values.status,
+          note: values.note || null,
+        },
       });
       await updatePaymentStatus({
         data: { paymentId: "", status: values.status, memberId: values.member_id },

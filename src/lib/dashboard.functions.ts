@@ -71,6 +71,93 @@ export const fetchPaymentsServer = createServerFn({ method: "GET" })
     return (data ?? []) as Payment[];
   });
 
+export const insertMemberServer = createServerFn({ method: "POST" })
+  .validator(
+    (data: {
+      member_code: string;
+      name: string;
+      mobile: string;
+      age: number | null;
+      gender: string | null;
+      plan: string;
+      plan_price: number;
+      payment_status: "paid" | "pending" | "overdue";
+      expiry_date: string;
+      notes: string | null;
+    }) => data,
+  )
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin.from("members").insert(data);
+    if (error) throw new Error(error.message);
+  });
+
+export const updateMemberServer = createServerFn({ method: "POST" })
+  .validator(
+    (data: {
+      id: string;
+      values: Partial<{
+        name: string;
+        mobile: string;
+        age: number | null;
+        gender: string | null;
+        plan: string;
+        plan_price: number;
+        payment_status: "paid" | "pending" | "overdue";
+        expiry_date: string;
+        notes: string | null;
+      }>;
+    }) => data,
+  )
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin.from("members").update(data.values).eq("id", data.id);
+    if (error) throw new Error(error.message);
+  });
+
+export const deleteMemberServer = createServerFn({ method: "POST" })
+  .validator((data: { id: string }) => data)
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin.from("members").delete().eq("id", data.id);
+    if (error) throw new Error(error.message);
+  });
+
+export const nextMemberCodeServer = createServerFn({ method: "GET" })
+  .handler(async (): Promise<string> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data } = await supabaseAdmin
+      .from("members")
+      .select("member_code")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const last = Number(data?.member_code?.replace(/\D/g, "") ?? 1000);
+    return `JG-${Number.isNaN(last) ? 1001 : last + 1}`;
+  });
+
+export const insertPaymentServer = createServerFn({ method: "POST" })
+  .validator(
+    (data: {
+      member_id: string;
+      amount: number;
+      method: string;
+      status: "paid" | "pending" | "overdue";
+      note?: string | null;
+    }) => data,
+  )
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin.from("payments").insert({
+      member_id: data.member_id,
+      amount: data.amount,
+      method: data.method,
+      status: data.status,
+      note: data.note ?? null,
+    });
+    if (error) throw new Error(error.message);
+  });
+
 export const updatePaymentStatus = createServerFn({ method: "POST" })
   .validator((data: { paymentId: string; status: "paid" | "pending" | "overdue"; memberId: string }) => data)
   .handler(async ({ data }) => {
