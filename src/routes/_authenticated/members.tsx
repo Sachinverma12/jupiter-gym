@@ -2,7 +2,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import dayjs from "dayjs";
-import { Download, MessageCircle, Pencil, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { Download, MessageCircle, Pencil, Plus, RefreshCw, Search, Trash2, X, Check, Ban } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "react-toastify";
@@ -11,15 +11,17 @@ import { AdminShell, btn, btnPrimary } from "@/components/AdminShell";
 import { EmptyState, ErrorState, LoadingState } from "@/components/EmptyState";
 import { StatusBadge, statusTone } from "@/components/StatusBadge";
 import { PLAN_KEYS, PLANS, planLabel } from "@/config/gym";
-import { useMembers } from "@/hooks/useGymData";
+import { useMembers, useMemberRequests } from "@/hooks/useGymData";
 import {
+  approveMemberRequestServer,
   deleteMemberServer,
   insertMemberServer,
   insertPaymentServer,
   nextMemberCodeServer,
+  rejectMemberRequestServer,
   updateMemberServer,
 } from "@/lib/dashboard.functions";
-import type { Member } from "@/lib/dashboard.functions";
+import type { Member, MemberRequest } from "@/lib/dashboard.functions";
 import { exportToExcel } from "@/utils/excel";
 import {
   formatDate,
@@ -54,6 +56,7 @@ type Filter = "all" | "active" | "expiring" | "expired";
 
 function MembersPage() {
   const { data, isLoading, error } = useMembers();
+  const { data: requests } = useMemberRequests();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -61,6 +64,9 @@ function MembersPage() {
   const [creating, setCreating] = useState(false);
 
   const members = data ?? [];
+  const memberRequests = requests ?? [];
+  const pendingRequests = memberRequests.filter((r) => r.status === "pending");
+
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return members.filter((m) => {
@@ -74,7 +80,31 @@ function MembersPage() {
     });
   }, [members, search, filter]);
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ["members"] });
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["members"] });
+    queryClient.invalidateQueries({ queryKey: ["member_requests"] });
+  };
+
+  async function approveRequest(req: MemberRequest) {
+    try {
+      await approveMemberRequestServer({ data: { requestId: req.id } });
+      await refresh();
+      toast.success(`${req.name} has been approved and added as a member.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Approval failed.");
+    }
+  }
+
+  async function rejectRequest(req: MemberRequest) {
+    if (!window.confirm(`Reject ${req.name}'s registration request?`)) return;
+    try {
+      await rejectMemberRequestServer({ data: { requestId: req.id } });
+      await refresh();
+      toast.success("Request rejected.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Rejection failed.");
+    }
+  }
 
   async function renew(member: Member) {
     const plan = PLANS[member.plan as keyof typeof PLANS] ?? PLANS.monthly;
@@ -146,7 +176,7 @@ function MembersPage() {
   return (
     <AdminShell
       title="Member Management"
-      subtitle={`${members.length} total · ${members.filter((m) => memberStatus(m.expiry_date) === "expiring").length} expiring soon`}
+      subtitle={`${members.length} total · ${members.filter((m) => memberStatus(m.expiry_date) === "expiring").length} expiring${pendingRequests.length > 0 ? ` · ${pendingRequests.length} pending request${pendingRequests.length > 1 ? "s" : ""}` : ""}`}
       actions={
         <>
           <button type="button" onClick={exportMembers} className={btn}>
@@ -185,6 +215,72 @@ function MembersPage() {
           ))}
         </div>
       </div>
+
+      {pendingRequests.length > 0 && (
+        <div className="animate-slide space-y-3 border border-warning/40 bg-warning/5 p-4">
+          <div className="flex items-center justify-between">
+            <h2 className="heading-display text-lg">
+              Pending Requests
+              <span className="ml-2 inline-flex size-5 items-center justify-center bg-warning text-[10px] font-bold text-warning-foreground">
+                {pendingRequests.length}
+              </span>
+            </h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[600px] border-collapse text-left">
+              <thead className="bg-muted/60 font-mono text-[10px] tracking-widest text-muted-foreground uppercase">
+                <tr>
+                  <th className="border-b border-border p-3">Member</th>
+                  <th className="border-b border-border p-3">Plan</th>
+                  <th className="border-b border-border p-3">Requested</th>
+                  <th className="border-b border-border p-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="text-sm">
+                {pendingRequests.map((req) => (
+                  <tr
+                    key={req.id}
+                    className="border-b border-border transition-colors hover:bg-accent/40"
+                  >
+                    <td className="p-3">
+                      <div className="font-semibold">{req.name}</div>
+                      <div className="font-mono text-[10px] text-muted-foreground">
+                        {req.mobile}
+                        {req.age ? ` · ${req.age}y` : ""}
+                        {req.gender ? ` · ${req.gender}` : ""}
+                      </div>
+                    </td>
+                    <td className="p-3 text-xs uppercase">{planLabel(req.plan)}</td>
+                    <td className="p-3 font-mono text-xs">
+                      {dayjs(req.created_at).format("DD MMM, hh:mm A")}
+                    </td>
+                    <td className="p-3">
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => approveRequest(req)}
+                          title="Approve"
+                          className="inline-flex items-center gap-1 border border-primary/40 bg-primary/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest text-primary transition-colors hover:bg-primary hover:text-primary-foreground"
+                        >
+                          <Check className="size-3" /> Approve
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => rejectRequest(req)}
+                          title="Reject"
+                          className="inline-flex items-center gap-1 border border-destructive/40 bg-destructive/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest text-destructive transition-colors hover:bg-destructive hover:text-destructive-foreground"
+                        >
+                          <Ban className="size-3" /> Reject
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {isLoading ? (
         <LoadingState label="Loading members" />

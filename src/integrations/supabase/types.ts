@@ -129,6 +129,42 @@ export type Database = {
           },
         ];
       };
+      member_requests: {
+        Row: {
+          age: number | null;
+          created_at: string;
+          gender: string | null;
+          id: string;
+          mobile: string;
+          name: string;
+          plan: string;
+          reviewed_at: string | null;
+          status: string;
+        };
+        Insert: {
+          age?: number | null;
+          created_at?: string;
+          gender?: string | null;
+          id?: string;
+          mobile: string;
+          name: string;
+          plan?: string;
+          reviewed_at?: string | null;
+          status?: string;
+        };
+        Update: {
+          age?: number | null;
+          created_at?: string;
+          gender?: string | null;
+          id?: string;
+          mobile?: string;
+          name?: string;
+          plan?: string;
+          reviewed_at?: string | null;
+          status?: string;
+        };
+        Relationships: [];
+      };
       profiles: {
         Row: {
           created_at: string;

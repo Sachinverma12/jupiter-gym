@@ -29,6 +29,7 @@ const PLAN_MONTHS: Record<string, { months: number; price: number }> = {
 
 export type CheckInResult =
   | { status: "unknown" }
+  | { status: "pending_approval" }
   | {
       status: "checked_in" | "already" | "expired";
       name: string;
@@ -142,4 +143,77 @@ export const registerMember = createServerFn({ method: "POST" })
       expiry: member.expiry_date,
       time: attendance?.check_in_at ?? new Date().toISOString(),
     };
+  });
+
+const submitRequestSchema = z.object({
+  name: z.string().trim().min(2).max(80),
+  mobile: z.string().trim().min(6).max(20),
+  age: z.number().int().min(10).max(100).optional(),
+  gender: z.enum(["male", "female", "other"]).optional(),
+  plan: z.enum(["monthly", "quarterly", "half_yearly", "yearly"]),
+});
+
+export const submitMemberRequest = createServerFn({ method: "POST" })
+  .validator((data) => submitRequestSchema.parse(data))
+  .handler(async ({ data }): Promise<CheckInResult> => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const mobile = normalize(data.mobile);
+    if (mobile.length < 10) throw new Error("Please enter a valid 10 digit mobile number.");
+
+    const { data: existingMember } = await supabaseAdmin
+      .from("members")
+      .select("id")
+      .eq("mobile", mobile)
+      .maybeSingle();
+    if (existingMember) throw new Error("This mobile number is already registered. Just check in.");
+
+    const { data: existingRequest } = await supabaseAdmin
+      .from("member_requests")
+      .select("id, status")
+      .eq("mobile", mobile)
+      .in("status", ["pending", "approved"])
+      .maybeSingle();
+
+    if (existingRequest?.status === "pending") {
+      return { status: "pending_approval" };
+    }
+    if (existingRequest?.status === "approved") {
+      const { data: member } = await supabaseAdmin
+        .from("members")
+        .select("id, name, member_code, expiry_date")
+        .eq("mobile", mobile)
+        .maybeSingle();
+      if (member) {
+        const today = new Date().toISOString().slice(0, 10);
+        if (member.expiry_date < today) {
+          return { status: "expired", name: member.name, memberCode: member.member_code, expiry: member.expiry_date, time: new Date().toISOString() };
+        }
+        const { data: existing } = await supabaseAdmin
+          .from("attendance")
+          .select("check_in_at")
+          .eq("member_id", member.id)
+          .eq("check_in_date", today)
+          .maybeSingle();
+        if (existing) {
+          return { status: "already", name: member.name, memberCode: member.member_code, expiry: member.expiry_date, time: existing.check_in_at };
+        }
+        const { data: inserted } = await supabaseAdmin
+          .from("attendance")
+          .insert({ member_id: member.id })
+          .select("check_in_at")
+          .single();
+        return { status: "checked_in", name: member.name, memberCode: member.member_code, expiry: member.expiry_date, time: inserted?.check_in_at ?? new Date().toISOString() };
+      }
+    }
+
+    const { error } = await supabaseAdmin.from("member_requests").insert({
+      name: data.name,
+      mobile,
+      age: data.age ?? null,
+      gender: data.gender ?? null,
+      plan: data.plan,
+    });
+    if (error) throw new Error("Could not submit your request. Please try again.");
+
+    return { status: "pending_approval" };
   });

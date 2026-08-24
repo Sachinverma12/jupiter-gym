@@ -8,7 +8,7 @@ import { toast } from "react-toastify";
 
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PLAN_KEYS, PLANS, GYM } from "@/config/gym";
-import { checkInByMobile, registerMember, type CheckInResult } from "@/lib/checkin.functions";
+import { checkInByMobile, submitMemberRequest, type CheckInResult } from "@/lib/checkin.functions";
 import { formatDate } from "@/utils/format";
 import { registrationSchema, toNumber, type RegistrationInput } from "@/utils/validation";
 
@@ -118,12 +118,18 @@ function CheckInPortal() {
             onDone={(res) => {
               setResult(res);
               setRegistering(false);
-              toast.success("Welcome to Jupiter Gym! You are checked in.");
+              if (res.status === "pending_approval") {
+                toast.info("Your request has been submitted. Please wait for admin approval.");
+              } else {
+                toast.success("Welcome to Jupiter Gym! You are checked in.");
+              }
             }}
             onCancel={reset}
           />
-        ) : result && result.status !== "unknown" ? (
+        ) : result && result.status !== "unknown" && result.status !== "pending_approval" ? (
           <ResultCard result={result} onDone={reset} />
+        ) : result && result.status === "pending_approval" ? (
+          <PendingApprovalCard onDone={reset} />
         ) : (
           <form onSubmit={handleCheckIn} className="animate-slide space-y-4">
             <div className="space-y-2">
@@ -168,7 +174,7 @@ function CheckInPortal() {
 }
 
 function ResultCard({ result, onDone }: { result: CheckInResult; onDone: () => void }) {
-  if (result.status === "unknown") return null;
+  if (result.status === "unknown" || result.status === "pending_approval") return null;
   const expired = result.status === "expired";
   return (
     <div className="animate-stamp space-y-6 border border-border bg-card p-6">
@@ -216,6 +222,33 @@ function ResultCard({ result, onDone }: { result: CheckInResult; onDone: () => v
   );
 }
 
+function PendingApprovalCard({ onDone }: { onDone: () => void }) {
+  return (
+    <div className="animate-stamp space-y-6 border border-border bg-card p-6">
+      <div className="text-center">
+        <h2 className="heading-display text-3xl">Request<br />Submitted</h2>
+      </div>
+
+      <div className="bg-warning/10 p-4 text-center font-display text-xl uppercase tracking-wider text-warning">
+        Pending Admin Approval
+      </div>
+
+      <p className="text-center text-sm text-muted-foreground">
+        Your registration request has been submitted and is awaiting admin approval.
+        Please check back later or ask the gym staff at the front desk.
+      </p>
+
+      <button
+        type="button"
+        onClick={onDone}
+        className="flex w-full items-center justify-center gap-2 border border-border py-3 font-mono text-[11px] uppercase tracking-widest text-muted-foreground hover:border-primary hover:text-primary"
+      >
+        <ArrowLeft className="size-3" /> Done
+      </button>
+    </div>
+  );
+}
+
 function RegistrationForm({
   mobile,
   onDone,
@@ -237,7 +270,7 @@ function RegistrationForm({
   const submit = handleSubmit(async (values) => {
     try {
       const age = toNumber(values.age);
-      const res = await registerMember({
+      const res = await submitMemberRequest({
         data: {
           name: values.name,
           mobile: values.mobile,
